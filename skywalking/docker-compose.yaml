@@ -1,0 +1,73 @@
+version: '2.4'
+
+services:
+  zookeeper:
+    image: zookeeper:3.4
+    environment:
+      - ALLOW_ANONYMOUS_LOGIN=yes
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -nz 127.0.0.1 2181"]
+      interval: 5s
+      timeout: 60s
+      retries: 120
+
+  kafka:
+    image: bitnami/kafka:2.4.1
+    ports:
+      - 9092:9092
+    environment:
+      - ALLOW_PLAINTEXT_LISTENER=yes
+      - KAFKA_ADVERTISED_HOST_NAME=kafka
+      - KAFKA_ADVERTISED_PORT=9092
+      - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
+    links:
+      - zookeeper
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "kafka-topics.sh", "--list", "--zookeeper", "zookeeper:2181"]
+      interval: 5s
+      timeout: 60s
+      retries: 120
+
+  oap:
+    image: apache/skywalking-oap-server:8.5.0-es6
+    environment:
+      - SW_KAFKA_FETCHER=default
+      - SW_KAFKA_FETCHER_SERVERS=kafka:9092
+      - SW_KAFKA_FETCHER_PARTITIONS=1
+      - SW_KAFKA_FETCHER_PARTITIONS_FACTOR=1
+#      - SW_STORA:GE=h2
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -zn 127.0.0.1 11800"]
+      interval: 5s
+      timeout: 60s
+      retries: 120
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  jetty-agent:
+    image: jetty-agent:1.0.0
+    volumes:
+      - /opt/skywalking/dist/apache-skywalking-apm-bin/agent:/var/lib/agent
+    environment:
+      - COLLECTOR=oap:11800
+      - KAFKA_SERVERS=kafka:9092
+    links:
+      - kafka
+    depends_on:
+      oap:
+        condition: service_healthy
+
+  ui:
+    image: apache/skywalking-ui:8.5.0
+    ports:
+      - 8080:8080
+    environment:
+      - SW_OAP_ADDRESS=oap:12800
+    depends_on:
+      oap:
+        condition: service_healthy
+        
